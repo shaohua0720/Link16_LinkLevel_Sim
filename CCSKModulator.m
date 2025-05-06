@@ -1,5 +1,5 @@
-function ccsk_msg = LSY_CCSK32(interwine_msg, ccskcode)
-% CCSK32扩频函数
+function ccsk_msg = CCSKModulator(interwine_msg, ccskcode)
+% CCSK扩频函数
 % 输入参数:
 %   interwine_msg: 输入的二进制数据
 %   ccskcode: CCSK序列(32位)

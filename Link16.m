@@ -106,15 +106,15 @@ if MODULATION_TYPE == 4  % MSK
     mskModulator = comm.MSKModulator('BitInput', true, ...
                                      'SamplesPerSymbol', samplesPerBit, ...
                                      'InitialPhaseOffset', 0);  % 明确设置初始相位偏移
-    
+
     mskDemodulator = comm.MSKDemodulator('BitOutput', true, ...
                                          'SamplesPerSymbol', samplesPerBit, ...
                                          'InitialPhaseOffset', 0);  % 使用相同的初始相位偏移
-    
+
     % 方案2: 完全使用自定义MSK调制解调器
     % 调制时使用自定义MSK调制器
     % [~, modulatedSignal] = MSKmodulator(samplesPerBit, reshape(paddedBits, hopCount, bitsPerHop));
-    
+
     % 解调时使用对应的自定义MSK解调器
     % demodulatedBitStream = MSKdemodulator(samplesPerBit, receivedSignal);
 end
@@ -144,7 +144,7 @@ switch CODING_TYPE
         % (31,15)RS编码（每15个符号用31个符号来表示）
         codewordLength = rs_n;  % 编码后码字长度: 31符号
         messageLength = rs_k;   % 信息段长度: 15符号
-        codedBits = LSY_RSCode(crcEncodedBits, codewordLength, messageLength);  % RS编码
+        codedBits = RSEncoder(crcEncodedBits, codewordLength, messageLength);  % RS编码
     case 2  % 卷积编码
         % (2,1,7)卷积码: 码率1/2，约束长度7
         constraintLength = 7;  % 约束长度: 7
@@ -159,11 +159,11 @@ if ENABLE_INTERLEAVING
     interleavingCols = 100;  % 设定交织的深度与宽度: 10×100矩阵
     interleavingCount = length(codedBits)/(interleavingRows*interleavingCols);  % 交织次数
     interleavedBits = zeros(1, length(codedBits));
-    
+
     for i = 1:interleavingCount
         startIdx = ((i-1)*(interleavingRows*interleavingCols))+1;
         endIdx = i*(interleavingRows*interleavingCols);
-        tempData = codedBits(1, startIdx:endIdx);  
+        tempData = codedBits(1, startIdx:endIdx);
         % 通过按列填充矩阵，并按行输出来实现交织
         interleavedData = matintrlv(tempData, interleavingRows, interleavingCols);
         interleavedBits(1:i*interleavingRows*interleavingCols) = ...
@@ -179,7 +179,7 @@ end
 if ENABLE_CCSK == 1
     % 优化后的CCSK序列 相关性更好
     ccskCode = [1 0 1 1 1 0 1 0 0 0 1 1 1 1 0 1 0 0 1 0 0 0 0 0 0 1 1 0 0 1 1 0]';
-    spreadBits = LSY_CCSK32(interleavedBits, ccskCode);  % CCSK扩频: 每1比特扩展为32比特
+    spreadBits = CCSKModulator(interleavedBits, ccskCode);  % CCSK扩频: 每1比特扩展为32比特
     figureLabel_CCSK = 'CCSK';
 else
     spreadBits = interleavedBits;
@@ -203,27 +203,27 @@ switch MODULATION_TYPE
         % MSK专用处理流程
         % 1. 不分割为跳频点，而是整体调制
         bitsToModulate = spreadBits';
-        
+
         % 2. 调制整个比特流
         modulatedSignal = mskModulator(bitsToModulate);
-        
+
         % 3. 功率归一化
         modulatedSignal = modulatedSignal / sqrt(mean(abs(modulatedSignal).^2));
-        
+
         % 4. 然后再分割为跳频点
         hopCount = ceil(length(modulatedSignal) / (samplesPerBit*bitsPerHop));
         totalSamplesNeeded = hopCount * samplesPerBit * bitsPerHop;
-        
+
         % 5. 样本级别补零
         paddingSampleCount = 0;  % 初始化补零计数变量
         if length(modulatedSignal) < totalSamplesNeeded
             paddingSampleCount = totalSamplesNeeded - length(modulatedSignal);
             modulatedSignal = [modulatedSignal; zeros(paddingSampleCount, 1)];
         end
-        
+
         % 6. 重塑为矩阵形式
         modulatedSignalMatrix = reshape(modulatedSignal, samplesPerBit*bitsPerHop, hopCount).';
-        
+
         % 7. 记录补零信息
         exceedBitCount = paddingSampleCount;
 end
@@ -251,7 +251,7 @@ for snrIndex = 1:numel(snrValues)
     totalErrorBits = 0;
     totalErrorPackets = 0;
     snrDb = snrValues(snrIndex) + 10*log10(log2(modulationOrder)*codeRate);  % 将Eb/No转换为SNR
-    
+
     for frameIndex = 1:frameCount
         %% 跳频
         if ENABLE_FH == 0
@@ -263,18 +263,18 @@ for snrIndex = 1:numel(snrValues)
             frequencyHoppingIndices = randi([1, frequencyPointCount], 1, hopCount);  % 根据跳频点数生成随机频点序列索引
             transmitFrequencyTable = carrierSequence(frequencyHoppingIndices);  % 根据随机频点序列索引生成跳频频点（收发频点保持一致才可以解跳）
             frequencyHoppedSignalMatrix = FHmodulator(modulatedSignalMatrix, transmitFrequencyTable, samplingRate);  % 跳频调制
-            
+
             %% 信道
             transmittedSignal = reshape(frequencyHoppedSignalMatrix.', 1, numel(frequencyHoppedSignalMatrix));  % 将矩阵形式的信号转化为实际的1维信号
             receivedNoisy = awgn(transmittedSignal, snrDb);  % 添加高斯白噪声
-            
+
             receivedNoisyMatrix = reshape(receivedNoisy, samplesPerBit*bitsPerHop, hopCount);  % 使用与发送时相同的维度
             receivedNoisyMatrix = receivedNoisyMatrix.';  % 行：跳数，列: 每跳对应的带噪声的调制信号
-            
+
             %% 解跳并去掉冗余bit
             receivedBasebandMatrix = FHdemodulator(receivedNoisyMatrix, transmitFrequencyTable, samplingRate);  % 跳频解调
         end
-        
+
         receivedBasebandSignal = reshape(receivedBasebandMatrix.', 1, numel(receivedBasebandMatrix));
 
         % 根据调制方式区分处理
@@ -282,16 +282,16 @@ for snrIndex = 1:numel(snrValues)
             % MSK专用处理流程
             % 1. 保留完整信号用于MSK解调
             receivedSignal = reshape(receivedBasebandSignal, [], 1);
-            
+
             % 2. 相位校正（可选）
             % 估计相位偏移
             phaseOffset = angle(mean(receivedSignal));
             % 校正相位
             receivedSignalCorrected = receivedSignal * exp(-1j * phaseOffset);
-            
+
             % 3. 使用MATLAB内置MSK解调器
             allDemodulatedBits = mskDemodulator(receivedSignalCorrected);
-            
+
             % 4. 去除补零比特
             if exceedBitCount > 0
                 demodulatedBitStream = allDemodulatedBits(1:end-exceedBitCount)';
@@ -306,10 +306,10 @@ for snrIndex = 1:numel(snrValues)
             else
                 receivedData = receivedBasebandSignal;
             end
-            
+
             % 2. 重塑为列向量
             receivedSignal = reshape(receivedData, [], 1);
-            
+
             % 3. 根据调制方式解调
             switch MODULATION_TYPE
                 case 0  % BPSK
@@ -321,20 +321,20 @@ for snrIndex = 1:numel(snrValues)
                 case 3  % 64QAM
                     demodulatedIndices = qamdemod(receivedSignal, modulationOrder, 'UnitAveragePower', true);
             end
-            
+
             % 4. 转换为比特流
             demodulatedIndices = reshape(demodulatedIndices, [], 1);
             demodulatedBits = de2bi(demodulatedIndices, log2(modulationOrder), 'left-msb');
             demodulatedBitStream = reshape(demodulatedBits', 1, []);
         end
-        
+
         %% 解扩
         if ENABLE_CCSK == 1
-            ccsk_dec = LSY_CCSKde32(demodulatedBitStream, ccskCode);
+            ccsk_dec = CCSKDemodulator(demodulatedBitStream, ccskCode);
         else
             ccsk_dec = double(demodulatedBitStream);
         end
-        
+
         %% 解交织
         if ENABLE_INTERLEAVING == 1
             deinterleavedBits = zeros(1, length(ccsk_dec));
@@ -349,17 +349,17 @@ for snrIndex = 1:numel(snrValues)
         else
             deinterleavedBits = ccsk_dec;
         end
-        
+
         %% 信道译码
         switch CODING_TYPE
             case 0  % 'NO'
                 decodedBits = deinterleavedBits;
             case 1  % 'rs'
-                decodedBits = LSY_RSDec(deinterleavedBits, codewordLength, messageLength);
+                decodedBits = RSDecoder(deinterleavedBits, codewordLength, messageLength);
             case 2  % 'juanji'
                 decodedBits = vitdec(deinterleavedBits, trellis, tracebackDepth, 'trunc', 'hard');  % Viterbi译码
         end
-        
+
         %% 检错解码
         if ENABLE_CRC == 1
             [decodedData, crcError] = crcDetector(decodedBits');  % 输入为列向量
@@ -368,13 +368,13 @@ for snrIndex = 1:numel(snrValues)
         else
             decodedData = decodedBits;
         end
-        
+
         % 计算误比特数
         % 确保比较的两个向量长度相同
         minLength = min(length(inputBits), length(decodedData));
         errorBits = sum(inputBits(1:minLength) ~= decodedData(1:minLength));
         totalErrorBits = totalErrorBits + errorBits;
-        
+
         % 计算误包率
         originalPacket = inputBits(syncBitCount+1:end);
         decodedPacket = decodedData(syncBitCount+1:end);
@@ -383,7 +383,7 @@ for snrIndex = 1:numel(snrValues)
         packetErrors = sum(bsxfun(@ne, originalPacketMatrix, decodedPacketMatrix), 1) > 0;
         totalErrorPackets = totalErrorPackets + sum(packetErrors);
     end
-    
+
     % 计算误比特率和误包率
     berValues(snrIndex) = totalErrorBits / (frameCount * totalBitCount);
     packetErrorRate(snrIndex) = totalErrorPackets / (frameCount * packetCount);

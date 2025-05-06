@@ -1,4 +1,4 @@
-function dataOut_dc = LSY_RSDec(deinterwine_data, nn, kk)
+function dataOut_dc = RSDecoder(deinterwine_data, nn, kk)
 % RS解码函数
 % 输入参数:
 %   deinterwine_data: 输入的二进制数据

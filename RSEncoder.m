@@ -1,4 +1,4 @@
-function encoded_msg = LSY_RSCode(dataIn_crc, nn, kk)
+function encoded_msg = RSEncoder(dataIn_crc, nn, kk)
 % RS编码函数
 % 输入参数:
 %   dataIn_crc: 输入的二进制数据
@@ -49,12 +49,4 @@ for i = 1:num_groups
     % 添加到编码后的消息
     encoded_msg = [encoded_msg, encoded_bits];
 end
-
-% 处理剩余的比特
-if length(dataIn_crc) > num_groups * bits_per_group
-    remaining_bits = dataIn_crc(num_groups * bits_per_group + 1:end);
-    encoded_msg = [encoded_msg, remaining_bits];
 end
-
-end
-

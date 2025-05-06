@@ -1,5 +1,5 @@
-function ccsk_dec = LSY_CCSKde32(dmdBit, ccskcode)
-% CCSK32解扩函数
+function ccsk_dec = CCSKDemodulator(dmdBit, ccskcode)
+% CCSK解扩函数
 % 输入参数:
 %   dmdBit: 输入的扩频后二进制数据
 %   ccskcode: CCSK序列(32位)
@@ -38,11 +38,4 @@ for i = 1:num_symbols
         ccsk_dec(i) = 0;
     end
 end
-
-% 处理剩余的比特
-remaining_bits = length(dmdBit) - num_symbols * n_ccsk;
-if remaining_bits > 0
-    ccsk_dec = [ccsk_dec, dmdBit(num_symbols * n_ccsk + 1:end)];
-end
-
 end
