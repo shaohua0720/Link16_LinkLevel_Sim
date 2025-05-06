@@ -14,6 +14,9 @@ function [biNRZ, txSig] = MSKmodulator(samp, TX_BIT_MAT)
 biNRZ = zeros(num_hops, bits_per_hop);
 txSig = zeros(num_hops, samp * bits_per_hop);
 
+% MSK参数
+h = 0.5;  % 调制指数，MSK固定为0.5
+
 for hop = 1:num_hops
     % 获取当前跳频点的比特
     bits = TX_BIT_MAT(hop, :);
@@ -56,3 +59,4 @@ for hop = 1:num_hops
 end
 
 end
+
