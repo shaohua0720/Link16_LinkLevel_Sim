@@ -8,7 +8,7 @@ clc; clear; close all;
 %% 1. 系统参数设置
 % ===== 1.1 系统功能开关 =====
 ENABLE_FH = 0;                  % 0: 不跳频传输 1: 跳频传输
-MODULATION_TYPE = 2;            % 0: BPSK, 1: QPSK, 2: 16QAM, 3: 64QAM, 4: MSK
+MODULATION_TYPE = 4;            % 0: BPSK, 1: QPSK, 2: 16QAM, 3: 64QAM, 4: MSK
 ENABLE_CRC = 0;                 % 0: 不使用CRC编码, 1: 使用CRC编码
 CODING_TYPE = 1;                % 0: 不编码, 1: RS(31,15)编码, 2: (2,1,7)卷积编码
 ENABLE_INTERLEAVING = 1;        % 0: 不使用交织, 1: 使用交织
@@ -111,19 +111,23 @@ else
     figureLabel_FH = '非跳频传输';
 end
 
-% ===== 1.11 创建MSK调制器和解调器对象 =====
+% ===== 1.11 MSK调制解调设置 =====
 if MODULATION_TYPE == 4  % MSK
-    mskModulator = comm.MSKModulator('BitInput', true, ...
-                                     'SamplesPerSymbol', samplesPerBit, ...
-                                     'InitialPhaseOffset', 0);  % 设置初始相位为0
-
-    mskDemodulator = comm.MSKDemodulator('BitOutput', true, ...
-                                         'SamplesPerSymbol', samplesPerBit, ...
-                                         'InitialPhaseOffset', 0);  % 使用相同的初始相位
+    % 注释掉原有的MATLAB内置MSK对象
+    % mskModulator = comm.MSKModulator('BitInput', true, ...
+    %                                 'SamplesPerSymbol', samplesPerBit, ...
+    %                                 'InitialPhaseOffset', 0);
+    % 
+    % mskDemodulator = comm.MSKDemodulator('BitOutput', true, ...
+    %                                     'SamplesPerSymbol', samplesPerBit, ...
+    %                                     'InitialPhaseOffset', 0);
+    
+    % 我们将使用自定义的MSK函数替代
+    fprintf('使用自定义MSK调制解调函数\n');
 end
 
 % ===== 1.12 误比特分析参数 =====
-snrValues = (-20:-10);            % Eb/No范围: -10dB到0dB，步长1dB
+snrValues = (-25:-15);            % Eb/No范围: -10dB到0dB，步长1dB
 codeRate = 1/2;                 % 系统总码率: 1/2 (考虑编码和扩频)
 berValues = zeros(1, length(snrValues));  % 误比特率结果数组
 packetErrorRate = zeros(1, length(snrValues));  % 误包率结果数组
@@ -214,24 +218,52 @@ for snrIndex = 1:numel(snrValues)
                 % modulatedSignal = filter(rrcFilter, 1, modulatedSignal);
                 
             case 4  % MSK
-                % MSK调制(内部已包含上采样)
-                bitsToModulate = spreadBits';
-                modulatedSignal = mskModulator(bitsToModulate);
+                % 先计算跳频点数
+                % 计算每个跳频点的比特数
+                bitsPerHop = bitRate / hoppingRate;  % 每跳比特数: 50比特/跳
+                
+                % 计算所需跳频点数
+                totalBits = length(spreadBits);
+                hopCount = ceil(totalBits / bitsPerHop);
+                
+                % 将比特序列重组为矩阵形式(每行对应一个跳频点)
+                % 如果最后一个跳频点的比特不足，则补零
+                paddingBits = hopCount * bitsPerHop - totalBits;
+                paddedBits = [spreadBits, zeros(1, paddingBits)];
+                bitsMatrix = reshape(paddedBits, bitsPerHop, hopCount)';  % 行=跳频点, 列=比特
+                
+                % 使用自定义MSK调制函数
+                [~, modulatedSignalMatrix] = MSKmodulator(samplesPerBit, bitsMatrix);
+                
+                % 功率归一化
+                for hop = 1:hopCount
+                    modulatedSignalMatrix(hop, :) = modulatedSignalMatrix(hop, :) / sqrt(mean(abs(modulatedSignalMatrix(hop, :)).^2));
+                end
+                
+                % 将矩阵转换为向量形式，以便与其他调制方式保持一致的处理流程
+                modulatedSignal = reshape(modulatedSignalMatrix', [], 1);
         end
         
         % 功率归一化
         modulatedSignal = modulatedSignal / sqrt(mean(abs(modulatedSignal).^2));
         
         % ===== 3.2 补零对齐 =====
-        hopCount = ceil(length(modulatedSignal) / (samplesPerBit*bitsPerHop));  % 计算所需跳频点数
-        paddingSampleCount = hopCount * samplesPerBit * bitsPerHop - length(modulatedSignal);
-        modulatedSignal = [modulatedSignal; zeros(paddingSampleCount, 1)];  % 末尾补零对齐
-        
-        % 记录补零数量(用于解调时去除)
-        exceedBitCount = paddingSampleCount;
-        % 将信号重组为矩阵形式(每行对应一个跳频点)
-        modulatedSignalMatrix = reshape(modulatedSignal, samplesPerBit*bitsPerHop, hopCount);
-        modulatedSignalMatrix = modulatedSignalMatrix.';  % 转置: 行=跳频点, 列=采样点
+        if MODULATION_TYPE == 4  % MSK
+            % MSK已经在调制阶段处理了补零，这里只需记录补零数量
+            exceedBitCount = paddingBits;
+            % 已经有了modulatedSignalMatrix，不需要重新构造
+        else
+            % 原有的补零对齐代码
+            hopCount = ceil(length(modulatedSignal) / (samplesPerBit*bitsPerHop));  % 计算所需跳频点数
+            paddingSampleCount = hopCount * samplesPerBit * bitsPerHop - length(modulatedSignal);
+            modulatedSignal = [modulatedSignal; zeros(paddingSampleCount, 1)];  % 末尾补零对齐
+            
+            % 记录补零数量(用于解调时去除)
+            exceedBitCount = paddingSampleCount;
+            % 将信号重组为矩阵形式(每行对应一个跳频点)
+            modulatedSignalMatrix = reshape(modulatedSignal, samplesPerBit*bitsPerHop, hopCount);
+            modulatedSignalMatrix = modulatedSignalMatrix.';  % 转置: 行=跳频点, 列=采样点
+        end
         
         % ===== 3.3 跳频与信道传输 =====
         if ENABLE_FH == 0
@@ -264,17 +296,16 @@ for snrIndex = 1:numel(snrValues)
 
         % 根据调制方式区分处理
         if MODULATION_TYPE == 4  % MSK
-            % MSK专用解调流程
-            receivedSignal = reshape(receivedBasebandSignal, [], 1);
-            
-            % 使用MSK解调器
-            allDemodulatedBits = mskDemodulator(receivedSignal);
+            % 使用自定义MSK解调函数
+            demodulatedBitStream = [];
+            for hop = 1:hopCount
+                hopBits = MSKdemodulator(samplesPerBit, receivedBasebandMatrix(hop, :));
+                demodulatedBitStream = [demodulatedBitStream, hopBits];
+            end
             
             % 去除补零比特
             if exceedBitCount > 0
-                demodulatedBitStream = allDemodulatedBits(1:end-exceedBitCount)';
-            else
-                demodulatedBitStream = allDemodulatedBits';
+                demodulatedBitStream = demodulatedBitStream(1:end-exceedBitCount);
             end
         else
             % 其他调制方式解调流程

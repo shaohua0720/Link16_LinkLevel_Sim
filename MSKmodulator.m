@@ -24,13 +24,6 @@ for hop = 1:num_hops
     % 转换为双极性NRZ信号 (0->-1, 1->1)
     biNRZ(hop, :) = 2 * bits - 1;
     
-    % 对每个比特进行过采样
-    biNRZ_oversamp = zeros(1, samp * bits_per_hop);
-    for i = 1:bits_per_hop
-        biNRZ_oversamp((i-1)*samp+1:i*samp) = biNRZ(hop, i);
-    end
-    
-    % MSK调制
     % 初始化I和Q分量
     I_phase = zeros(1, samp * bits_per_hop);
     Q_phase = zeros(1, samp * bits_per_hop);
@@ -38,7 +31,7 @@ for hop = 1:num_hops
     % 生成I和Q分量的相位
     for i = 1:bits_per_hop
         bit_idx = (i-1)*samp+1:i*samp;
-        t = linspace(0, 1, samp);
+        t = (0:samp-1) / samp;
         
         if mod(i, 2) == 1  % 奇数位影响I分量
             I_phase(bit_idx) = biNRZ(hop, i) * cos(pi*t/2);
@@ -47,10 +40,12 @@ for hop = 1:num_hops
         end
     end
     
-    % 合成MSK信号
-    carrier_I = cos(2*pi*0.25*(0:samp*bits_per_hop-1)/samp);
-    carrier_Q = sin(2*pi*0.25*(0:samp*bits_per_hop-1)/samp);
+    % 生成载波
+    t_full = (0:samp*bits_per_hop-1)/samp;
+    carrier_I = cos(2*pi*0.25*t_full);
+    carrier_Q = sin(2*pi*0.25*t_full);
     
+    % 调制
     I_signal = I_phase .* carrier_I;
     Q_signal = Q_phase .* carrier_Q;
     
@@ -59,4 +54,5 @@ for hop = 1:num_hops
 end
 
 end
+
 

@@ -1,0 +1,15 @@
+# MATLAB生成的数据文件
+*.mat
+
+# MATLAB自动保存文件
+*.asv
+
+# MATLAB编译文件
+*.mex*
+*.p
+
+# 日志文件
+*.log
+
+# 临时文件
+*~
